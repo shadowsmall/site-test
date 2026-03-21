@@ -112,100 +112,109 @@ varying vec3 vN;varying vec3 vW;varying vec2 vU;
 void main(){vec4 w=uM*vec4(aP,1.);vW=w.xyz;vN=normalize(mat3(uM)*aN);vU=aU;gl_Position=uMVP*vec4(aP,1.);}`;
 
 const FS=`
-precision mediump float;
+precision highp float;
 varying vec3 vN;varying vec3 vW;varying vec2 vU;
 uniform vec3 uC;uniform float uF;uniform float uTX;
 
-float hs(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
-float ns(vec2 p){vec2 i=floor(p);vec2 f=fract(p)*fract(p)*(3.-2.*fract(p));
-  return mix(mix(hs(i),hs(i+vec2(1,0)),f.x),mix(hs(i+vec2(0,1)),hs(i+vec2(1,1)),f.x),f.y);}
-float fbm(vec2 p){return ns(p)*.5+ns(p*2.1)*.25+ns(p*4.3)*.125;}
+float h2(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+float vn(vec2 p){vec2 i=floor(p);vec2 f=fract(p);vec2 u=f*f*(3.-2.*f);return mix(mix(h2(i),h2(i+vec2(1,0)),u.x),mix(h2(i+vec2(0,1)),h2(i+vec2(1)),u.x),u.y);}
+float fbm2(vec2 p){return vn(p)*.5+vn(p*2.1+1.3)*.25+vn(p*4.4+2.7)*.125+vn(p*8.8+5.1)*.0625;}
 
 void main(){
   vec3 c=uC;
-  int tx=int(uTX+.5);
+  float tx=uTX;
 
-  if(tx==0){
-    // plain with subtle noise variation
-    c*=.92+ns(vU*15.)*.16;
-  } else if(tx==1){
-    // Marble floor — elegant diagonal checker + veins
-    float sc=3.5;
-    float ck=mod(floor(vU.x*sc)+floor(vU.y*sc),2.);
-    vec3 c1=uC*1.12, c2=uC*.68;
-    c=mix(c1,c2,ck);
-    float vein=fbm(vU*8.+vec2(1.3,2.7))*.06;
-    c+=vein;
-    // thin grout lines
-    vec2 g=fract(vU*sc);float grout=1.-smoothstep(.02,.06,min(g.x,g.y))*smoothstep(.98,.94,max(g.x,g.y));
-    c=mix(c,uC*.4,grout*.4);
-  } else if(tx==2){
-    // Gothic diamond wall — embossed pattern
-    vec2 uv=vU*vec2(5.5,4.);
-    // diamond grid
-    vec2 g=fract(uv)-.5;
-    float d=abs(g.x)+abs(g.y);
-    // thick diamond outline
-    float outline=smoothstep(.38,.44,d)-smoothstep(.44,.50,d);
-    // inner diamond fill variation
-    float inner=smoothstep(.0,.38,d);
-    float noiseV=ns(floor(uv)*0.7+vec2(.3,.1))*.12-.06;
-    c=uC*(1.0+inner*.15+noiseV);
-    c=mix(c,uC*1.3,outline*.5);
-    c=mix(c,uC*.35,smoothstep(.48,.50,d));
-  } else if(tx==3){
-    // Stone brick — with mortar joints and surface roughness
-    vec2 uv=vU*vec2(3.5,2.2);
+  if(tx<.5){
+    c*=.90+vn(vU*14.)*.2;
+  }
+  else if(tx<1.5){
+    // Polished marble — two-tone tiles + realistic veins
+    vec2 uv=vU*3.2;
+    float ck=step(1.,mod(floor(uv.x)+floor(uv.y),2.));
+    c=mix(uC*1.08,uC*.74,ck);
+    float vn1=fbm2(vU*6.+vec2(1.9,.6));
+    float vn2=fbm2(vU*9.-vec2(.8,2.3));
+    float veins=smoothstep(.52,.58,vn1+vn2*.4);
+    c=mix(c,c*.4+vec3(.1,.08,.06),veins*.45);
+    c*=.90+fbm2(vU*22.)*.2;
+    // Fine grout
+    vec2 gf=fract(uv);
+    float grout=smoothstep(.04,.0,min(gf.x,gf.y));
+    c=mix(c,uC*.42,grout*.5);
+  }
+  else if(tx<2.5){
+    // Gothic embossed wall — realistic stone with diamond relief
+    vec2 uv=vU*vec2(5.,4.);
+    vec2 gv=fract(uv)-.5;
+    float d=abs(gv.x)+abs(gv.y);
+    float tileN=h2(floor(uv))*.14-.07;
+    float surf=fbm2(vU*16.)*.12;
+    c=uC*(0.88+tileN+surf);
+    // Embossed diamond edge highlight
+    float hi=smoothstep(.38,.42,d)*smoothstep(.50,.44,d);
+    float shadow=smoothstep(.42,.50,d);
+    c=mix(c,c*1.45,hi*.55);
+    c=mix(c,c*.28,shadow*.55);
+    // Subtle moss in recesses
+    float moss=smoothstep(.25,.0,d)*vn(vU*5.)*.18;
+    c=mix(c,c*vec3(.55,.72,.45),moss);
+  }
+  else if(tx<3.5){
+    // Stone masonry — realistic with individual brick variation
+    vec2 uv=vU*vec2(3.2,1.9);
     float row=floor(uv.y);
-    vec2 br=fract(vec2(uv.x+mod(row,2.)*.5,uv.y));
-    float mortar=1.-smoothstep(.0,.06,br.x)*smoothstep(1.,.94,br.x)*smoothstep(.0,.08,br.y)*smoothstep(1.,.92,br.y);
-    vec3 brickCol=uC*(0.85+fbm(floor(vec2(uv.x+mod(row,2.)*.5,uv.y))*.9)*.3);
-    vec3 mortarCol=vec3(.28,.26,.23);
-    c=mix(brickCol,mortarCol,mortar*.9);
-  } else if(tx==4){
-    // Dark wood — planks with grain
-    float plank=floor(vU.x*3.);
-    float grain=fbm(vec2(vU.x*3.,vU.y*18.+plank*5.3))*.22;
-    float knot=ns(vec2(plank*.7,vU.y*2.+plank))*.08;
-    c=uC*(.78+grain+knot);
-    float gap=1.-smoothstep(.03,.08,fract(vU.x*3.));
-    c=mix(c,c*.4,gap*.85);
-  } else if(tx==5){
-    // Rich carpet — deep red with subtle pile texture
-    float pile=fbm(vU*22.)*.15;
-    c=uC*(.85+pile);
-    float stripe=sin(vU.x*12.)*sin(vU.y*4.)*.03;
-    c+=stripe;
+    float oxf=mod(row,2.)*.5;
+    vec2 bf=fract(vec2(uv.x+oxf,uv.y));
+    float bid=floor(uv.x+oxf);
+    float bseed=h2(vec2(bid,row));
+    float mortar=1.-smoothstep(0.,.06,bf.x)*smoothstep(1.,.94,bf.x)*smoothstep(0.,.08,bf.y)*smoothstep(1.,.92,bf.y);
+    vec3 bCol=uC*(0.82+bseed*.38);
+    bCol*=.84+fbm2(vU*14.+bseed)*.28;
+    c=mix(bCol,vec3(.30,.27,.24),mortar*.85);
+    c=mix(c,c*.55,mortar*.3);
+  }
+  else if(tx<4.5){
+    // Rich mahogany — planks with complex grain
+    float pl=floor(vU.x*2.2);
+    float along=vU.y*12.+pl*8.1;
+    float g1=fbm2(vec2(vU.x*2.2,along))*.28;
+    float g2=vn(vec2(vU.x*11.,along*.3))*.07;
+    float knot=smoothstep(.35,.0,abs(vn(vec2(pl,vU.y*2.+pl*.7))-.5))*.18;
+    c=uC*(.70+g1+g2+knot);
+    float gap=smoothstep(.05,.0,fract(vU.x*2.2));
+    c=mix(c,c*vec3(.22,.14,.08),gap*.9);
+  }
+  else{
+    // Velvet carpet
+    float n1=fbm2(vU*26.)*.2;
+    float n2=fbm2(vU*26.+vec2(53.,31.))*.2;
+    c=uC*(.80+n1);
+    float shimmer=dot(normalize(vec3(n1-.1,1.,n2-.1)),normalize(vec3(.4,1.,.3)))*.15;
+    c+=shimmer;
   }
 
-  // ── LIGHTING ──────────────────────────────────────
-  vec3 ld=normalize(vec3(.4,1.0,.35));
-  // half-lambert for softer shadows
-  float ndl=dot(vN,ld);
-  float diff=ndl*.45+.55;
-  diff*=diff;
+  // ── THREE-POINT CINEMATIC LIGHTING ──
+  vec3 key=normalize(vec3(.42,.95,.28));
+  vec3 fill=normalize(vec3(-.55,.18,-.62));
+  vec3 back=normalize(vec3(.1,.0,.9));
 
-  // warm candlelight ambient (golden tint)
-  vec3 amb=vec3(.38,.34,.44);
-  // warm sun
-  vec3 sun=vec3(1.05,.92,.78);
-  vec3 lit=amb*c + diff*sun*c;
+  float dk=max(dot(vN,key),0.);dk=dk*.55+.45;dk*=dk;
+  float df=max(dot(vN,fill),0.)*.30;
+  float db=max(dot(vN,back),0.)*.15;
+  float dbounce=max(-vN.y,0.)*.14;
 
-  // cool fill from opposite side (moonlight through windows)
-  float fill=max(dot(vN,normalize(vec3(-.6,.1,-.4))),0.)*.22;
-  lit+=fill*vec3(.55,.65,.9)*c;
+  vec3 lit=c*(vec3(.28,.25,.33)
+    +dk*vec3(1.12,.98,.80)
+    +df*vec3(.50,.60,.90)
+    +db*vec3(.80,.85,.95)
+    +dbounce*vec3(.95,.78,.50));
 
-  // floor bounce (warm)
-  float bounce=max(-vN.y,0.)*.12;
-  lit+=bounce*vec3(.9,.7,.4)*c;
+  // Specular
+  vec3 hv=normalize(key+vec3(0.,1.,1.));
+  lit+=pow(max(dot(vN,hv),0.),56.)*.06*vec3(1.,.95,.85);
 
-  // specular highlight on shiny surfaces
-  vec3 viewDir=normalize(vec3(0.,1.,1.));
-  float sp=pow(max(dot(reflect(-ld,vN),viewDir),0.),32.)*.08;
-  lit+=sp;
-
-  // depth fog — atmospheric
-  lit=mix(lit,vec3(.06,.05,.10),clamp(uF,0.,1.));
+  // Fog
+  lit=mix(lit,vec3(.05,.045,.09),clamp(uF*uF,0.,1.));
   gl_FragColor=vec4(clamp(lit,0.,1.),1.);
 }`;
 
@@ -647,18 +656,22 @@ function doShoot(){
   if(ws.mag<=0){startRl();return;}
   P.fireCd=wd.rate;ws.mag--;MUZ=.09;shootAnim=1.0;uAmmo();
 
-  // Shoot from player chest position in the direction the camera is LOOKING
-  // This makes bullets go exactly where the crosshair points
+  // Step 1: find what the crosshair points at in the world
+  // Cast a ray from camera in camera-forward direction, find hit point far away
   const cosY=Math.cos(camYaw),sinY=Math.sin(camYaw);
   const cosP=Math.cos(camPitch),sinP=Math.sin(camPitch);
+  const cam=getCam();
+  // Camera forward direction
+  const cfx=-sinY*cosP, cfy=sinP, cfz=-cosY*cosP;
+  // Target point 60 units ahead of camera (what crosshair "sees")
+  const targetX=cam.x+cfx*60, targetY=cam.y+cfy*60, targetZ=cam.z+cfz*60;
 
-  // Origin = player upper body (chest level)
+  // Step 2: shoot FROM player chest TOWARD that target point
+  // This gives correct aim regardless of camera offset
   const ox=PX, oy=PY+0.5, oz=PZ;
-
-  // Direction = exact camera forward vector (where crosshair points)
-  const baseDirX=-sinY*cosP;
-  const baseDirY=sinP;
-  const baseDirZ=-cosY*cosP;
+  const tdx=targetX-ox, tdy=targetY-oy, tdz=targetZ-oz;
+  const tl=Math.sqrt(tdx*tdx+tdy*tdy+tdz*tdz);
+  const baseDirX=tdx/tl, baseDirY=tdy/tl, baseDirZ=tdz/tl;
 
   for(let i=0;i<wd.pel;i++){
     let rdx=baseDirX+(Math.random()-.5)*wd.sp*2;
@@ -670,7 +683,7 @@ function doShoot(){
     let bt=1e9,hb=null;
     bots.forEach(b=>{
       if(!b.alive)return;
-      const r=.35,bh=1.8;
+      const r=.38,bh=1.9;
       const ba={x1:b.x-r,x2:b.x+r,y1:b.y-bh/2,y2:b.y+bh/2,z1:b.z-r,z2:b.z+bh/2};
       const t=rAABB(ox,oy,oz,rdx,rdy,rdz,ba);
       if(t!==null&&t<bt){bt=t;hb=b;}
@@ -710,8 +723,170 @@ function movePl(dt){
 }
 
 // ═══ BOTS ═══
-function losOk(ax,ay,az,bx,by,bz){const dx=bx-ax,dy=by-ay,dz=bz-az,l=Math.sqrt(dx*dx+dy*dy+dz*dz);if(l<.1)return true;const steps=Math.ceil(l/.5);for(let i=1;i<steps;i++){const t=i/steps;if(colAt(ax+dx*t,ay+dy*t,az+dz*t,.1,.5))return false;}return true;}
-function updBots(dt){bots.forEach(b=>{b.aT+=dt;b.shootAnim=Math.max(0,b.shootAnim-dt*7);if(!b.alive){b.respT-=dt;if(b.respT<=0)respBot(b);return;}if(!b.onGround)b.vy-=GRAV*dt;b.fireCd-=dt;b.dashCd-=dt;b.stT-=dt;const dx=PX-b.x,dz=PZ-b.z,d2=Math.sqrt(dx*dx+dz*dz),see=losOk(b.x,b.y,b.z,PX,PY,PZ);b.aimAnim=Math.max(0,Math.min(1,b.aimAnim+((b.state==='strafe'&&see)?1:-1)*dt*6));switch(b.state){case 'patrol':if(!b.ptx&&!b.ptz||Math.sqrt((PX-b.ptx)**2+(PZ-b.ptz)**2)<.9){b.ptx=(Math.random()-.5)*30;b.ptz=(Math.random()-.5)*30;}bMv(b,b.ptx,b.ptz,3,dt);if(see&&d2<22)b.state=d2<2?'melee':'chase';break;case 'chase':if(d2<2&&see){b.state='melee';break;}if(see&&d2<6){b.state='strafe';b.stT=1.7;break;}bMv(b,PX,PZ,4.8,dt);if(!see&&d2>16)b.state='patrol';if(Math.random()<.01&&b.onGround)bJump(b);break;case 'strafe':{b.angle=Math.atan2(dx,dz);const pp=b.angle+Math.PI/2*b.stD;bMv(b,PX+Math.sin(pp)*4,PZ+Math.cos(pp)*4,3.8,dt);if(see&&b.fireCd<=0)bShoot(b,dx,dz,d2);if(b.stT<=0){b.stD*=-1;b.stT=.9+Math.random();}if(!see||d2>11)b.state='chase';if(d2<2)b.state='melee';if(Math.random()<.005&&b.dashCd<=0)bDash(b);break;}case 'melee':bMv(b,PX,PZ,6,dt);b.angle=Math.atan2(dx,dz);if(d2<1.9&&b.fireCd<=0){dmgP(20+Math.random()*8,b.name);b.fireCd=.62;}if(d2>3.5)b.state='strafe';break;case 'dodge':{const a=b.angle+Math.PI/2*b.stD;b.vx=Math.sin(a)*7;b.vz=Math.cos(a)*7;b.fireCd=Math.max(b.fireCd,.4);if(b.stT<=0)b.state='strafe';break;}}const bnx=b.x+b.vx*dt;if(!colAt(bnx,b.y,b.z,.23,1.6))b.x=bnx;else{b.vx*=-.1;if(b.onGround)bJump(b);}const bnz=b.z+b.vz*dt;if(!colAt(b.x,b.y,bnz,.23,1.6))b.z=bnz;else b.vz*=-.1;const bny=b.y+b.vy*dt;const byc=colAt(b.x,bny,b.z,.23,1.6);if(byc){if(b.vy<0){b.y=Math.max(PH/2,byc.ty+.8);b.vy=0;b.onGround=true;b.jc=0;}else b.vy*=-.1;}else{b.y=bny;if(b.y<=PH/2){b.y=PH/2;b.vy=0;b.onGround=true;b.jc=0;}else b.onGround=false;}b.vx*=Math.pow(.05,dt);b.vz*=Math.pow(.05,dt);});}
+function losOk(ax,ay,az,bx,by,bz){
+  const dx=bx-ax,dy=by-ay,dz=bz-az,l=Math.sqrt(dx*dx+dy*dy+dz*dz);
+  if(l<.1)return true;
+  const steps=Math.ceil(l/.4);
+  for(let i=1;i<steps;i++){const t=i/steps;if(colAt(ax+dx*t,ay+dy*t,az+dz*t,.1,.5))return false;}
+  return true;
+}
+
+function updBots(dt){
+  bots.forEach(b=>{
+    b.aT+=dt;
+    b.shootAnim=Math.max(0,b.shootAnim-dt*7);
+    if(!b.alive){b.respT-=dt;if(b.respT<=0)respBot(b);return;}
+    if(!b.onGround)b.vy-=GRAV*dt;
+    b.fireCd-=dt;b.dashCd-=dt;b.stT-=dt;
+    if(b.coverCd!==undefined)b.coverCd-=dt;else b.coverCd=0;
+    if(b.burstLeft===undefined)b.burstLeft=0;
+    if(b.reactDelay===undefined)b.reactDelay=0.2+Math.random()*0.3;
+    b.reactDelay=Math.max(0,b.reactDelay-dt);
+
+    const dx=PX-b.x, dz=PZ-b.z;
+    const d2=Math.sqrt(dx*dx+dz*dz);
+    const see=b.reactDelay<=0&&losOk(b.x,b.y,b.z,PX,PY,PZ);
+
+    // Update last seen position
+    if(see){b.lastSeenX=PX;b.lastSeenZ=PZ;b.lastSeenT=0;}
+    else if(b.lastSeenT!==undefined)b.lastSeenT+=dt;
+    else b.lastSeenT=0;
+
+    b.aimAnim=Math.max(0,Math.min(1,b.aimAnim+((b.state==='strafe'&&see)?1:-1)*dt*6));
+
+    switch(b.state){
+
+      case 'patrol':{
+        // Wander to random points, occasionally look around
+        if(!b.ptx||Math.sqrt((b.x-b.ptx)**2+(b.z-b.ptz)**2)<1.2){
+          b.ptx=(Math.random()-.5)*34; b.ptz=(Math.random()-.5)*44;
+          b.stT=1.5+Math.random()*2; // pause at waypoint
+        }
+        if(b.stT>0) bMv(b,b.ptx,b.ptz,2.8,dt);
+        if(see&&d2<24){
+          b.reactDelay=0.15+Math.random()*0.25; // reaction time before engaging
+          b.state=d2<2.5?'melee':'chase';
+        }
+        break;
+      }
+
+      case 'chase':{
+        // Chase but try to take cover when taking fire
+        if(d2<2.2&&see){b.state='melee';break;}
+        // Transition to strafe when close enough and has LOS
+        if(see&&d2<7){
+          b.state='strafe';
+          // Pick flank side based on player angle
+          const toPlayer=Math.atan2(dx,dz);
+          b.strafeSide=Math.sin(b.angle-toPlayer)>0?1:-1;
+          b.stT=1.2+Math.random()*1.5;
+          break;
+        }
+        // Lost sight — go to last known position
+        if(!see&&b.lastSeenX!==undefined&&b.lastSeenT<4){
+          bMv(b,b.lastSeenX,b.lastSeenZ,4.5,dt);
+          if(Math.sqrt((b.x-b.lastSeenX)**2+(b.z-b.lastSeenZ)**2)<1) b.state='patrol';
+        } else if(!see){
+          b.state='patrol';
+        } else {
+          bMv(b,PX,PZ,5,dt);
+        }
+        if(Math.random()<.012&&b.onGround)bJump(b);
+        break;
+      }
+
+      case 'strafe':{
+        b.angle=Math.atan2(dx,dz);
+        // Strafe perpendicular to player, but vary distance
+        const desiredDist=5+Math.sin(b.aT*0.5)*2; // oscillate desired distance
+        const perpAngle=b.angle+Math.PI/2*b.stD;
+        const targetX=PX+Math.sin(perpAngle)*desiredDist;
+        const targetZ=PZ+Math.cos(perpAngle)*desiredDist;
+        bMv(b,targetX,targetZ,3.5,dt);
+
+        // Shoot in bursts
+        if(see&&b.fireCd<=0){
+          if(b.burstLeft>0){
+            bShoot(b,dx,dz,d2);
+            b.burstLeft--;
+            if(b.burstLeft<=0) b.fireCd=0.8+Math.random()*0.6; // pause between bursts
+          } else {
+            // Start new burst (2-4 shots)
+            b.burstLeft=2+Math.floor(Math.random()*3);
+            bShoot(b,dx,dz,d2);
+            b.burstLeft--;
+          }
+        }
+
+        // Change direction periodically
+        if(b.stT<=0){
+          b.stD*=-1;
+          b.stT=0.8+Math.random()*1.2;
+          // Sometimes reposition
+          if(Math.random()<0.3){b.state='reposition';b.stT=0.6+Math.random()*0.8;}
+        }
+
+        if(!see&&b.lastSeenT>1.5)b.state='chase';
+        if(d2>14)b.state='chase';
+        if(d2<2)b.state='melee';
+
+        // Dash to avoid shots occasionally
+        if(Math.random()<.006&&b.dashCd<=0)bDash(b);
+        break;
+      }
+
+      case 'reposition':{
+        // Move to a new angle around the player
+        const newAngle=b.angle+Math.PI*(0.3+Math.random()*0.5)*b.stD;
+        const repDist=5+Math.random()*3;
+        const rx2=PX+Math.sin(newAngle)*repDist;
+        const rz2=PZ+Math.cos(newAngle)*repDist;
+        bMv(b,rx2,rz2,5.5,dt);
+        if(b.stT<=0||d2<2.5)b.state='strafe';
+        if(see&&b.fireCd<=0&&d2<8)bShoot(b,dx,dz,d2); // shoot while moving
+        break;
+      }
+
+      case 'melee':{
+        bMv(b,PX,PZ,6.5,dt);
+        b.angle=Math.atan2(dx,dz);
+        if(d2<1.8&&b.fireCd<=0){
+          dmgP(18+Math.random()*8,b.name);
+          b.fireCd=0.55;
+        }
+        if(d2>4){b.state='strafe';b.stT=1.5;}
+        break;
+      }
+
+      case 'dodge':{
+        // Evasive movement — not just straight but arc
+        const dodgeA=b.angle+Math.PI/2*b.stD+Math.sin(b.aT*8)*0.3;
+        b.vx=Math.sin(dodgeA)*8;b.vz=Math.cos(dodgeA)*8;
+        b.fireCd=Math.max(b.fireCd,.3);
+        if(b.stT<=0){b.state='strafe';b.stT=1.+Math.random();}
+        break;
+      }
+    }
+
+    // Movement + collision
+    const bnx=b.x+b.vx*dt;
+    if(!colAt(bnx,b.y,b.z,.23,1.6))b.x=bnx;
+    else{b.vx*=-.1;if(b.onGround)bJump(b);}
+    const bnz=b.z+b.vz*dt;
+    if(!colAt(b.x,b.y,bnz,.23,1.6))b.z=bnz;else b.vz*=-.1;
+    const bny=b.y+b.vy*dt;
+    const byc=colAt(b.x,bny,b.z,.23,1.6);
+    if(byc){
+      if(b.vy<0){b.y=Math.max(PH/2,byc.ty+.8);b.vy=0;b.onGround=true;b.jc=0;}
+      else b.vy*=-.1;
+    }else{
+      b.y=bny;
+      if(b.y<=PH/2){b.y=PH/2;b.vy=0;b.onGround=true;b.jc=0;}
+      else b.onGround=false;
+    }
+    b.vx*=Math.pow(.05,dt);b.vz*=Math.pow(.05,dt);
+  });
+}
 function bMv(b,tx,tz,sp,dt){const dx=tx-b.x,dz=tz-b.z,l=Math.sqrt(dx*dx+dz*dz);if(l<.1)return;b.angle=Math.atan2(dx,dz);b.vx=(dx/l)*sp;b.vz=(dz/l)*sp;}
 function bJump(b){if(b.jc<2){b.vy=JV*.78;b.onGround=false;b.jc++;}}
 function bDash(b){b.dashCd=1.1;const a=b.angle+Math.PI/2*(Math.random()>.5?1:-1);b.vx=Math.sin(a)*7;b.vz=Math.cos(a)*7;b.state='dodge';b.stT=.26;b.stD=Math.random()>.5?1:-1;}
