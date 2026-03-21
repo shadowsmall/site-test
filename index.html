@@ -93,6 +93,7 @@ body{background:#000;overflow:hidden;font-family:'Courier New',monospace;}
 
 <script>
 function startGame(){document.getElementById('ss').style.display='none';try{G();}catch(e){document.getElementById('ss').style.display='flex';document.querySelector('#ss h1').textContent='ERR:'+e.message;console.error(e);}}
+function respP(){if(window._respP)window._respP();}
 
 function G(){
 // ═══ GL SETUP ═══
@@ -114,43 +115,97 @@ const FS=`
 precision mediump float;
 varying vec3 vN;varying vec3 vW;varying vec2 vU;
 uniform vec3 uC;uniform float uF;uniform float uTX;
-float hs(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5);}
-float ns(vec2 p){vec2 i=floor(p);vec2 f=fract(p);f=f*f*(3.-2.*f);return mix(mix(hs(i),hs(i+vec2(1,0)),f.x),mix(hs(i+vec2(0,1)),hs(i+vec2(1,1)),f.x),f.y);}
+
+float hs(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+float ns(vec2 p){vec2 i=floor(p);vec2 f=fract(p)*fract(p)*(3.-2.*fract(p));
+  return mix(mix(hs(i),hs(i+vec2(1,0)),f.x),mix(hs(i+vec2(0,1)),hs(i+vec2(1,1)),f.x),f.y);}
+float fbm(vec2 p){return ns(p)*.5+ns(p*2.1)*.25+ns(p*4.3)*.125;}
+
 void main(){
   vec3 c=uC;
-  if(uTX<.5){ c*=.95+ns(vU*20.)*.1; }
-  else if(uTX<1.5){
-    float ck=mod(floor(vU.x*5.)+floor(vU.y*5.),2.);
-    c=mix(uC*1.1,uC*.72,ck);c+=ns(vU*22.+vec2(2.,.7))*.05;
-  } else if(uTX<2.5){
-    vec2 uv=vU*vec2(6.,4.);vec2 g=fract(uv)-.5;
+  int tx=int(uTX+.5);
+
+  if(tx==0){
+    // plain with subtle noise variation
+    c*=.92+ns(vU*15.)*.16;
+  } else if(tx==1){
+    // Marble floor — elegant diagonal checker + veins
+    float sc=3.5;
+    float ck=mod(floor(vU.x*sc)+floor(vU.y*sc),2.);
+    vec3 c1=uC*1.12, c2=uC*.68;
+    c=mix(c1,c2,ck);
+    float vein=fbm(vU*8.+vec2(1.3,2.7))*.06;
+    c+=vein;
+    // thin grout lines
+    vec2 g=fract(vU*sc);float grout=1.-smoothstep(.02,.06,min(g.x,g.y))*smoothstep(.98,.94,max(g.x,g.y));
+    c=mix(c,uC*.4,grout*.4);
+  } else if(tx==2){
+    // Gothic diamond wall — embossed pattern
+    vec2 uv=vU*vec2(5.5,4.);
+    // diamond grid
+    vec2 g=fract(uv)-.5;
     float d=abs(g.x)+abs(g.y);
-    float ln=smoothstep(.42,.48,d);
-    c=mix(uC*.55,uC*1.05,ln);c+=ns(floor(uv)*.4)*.06;
-  } else if(uTX<3.5){
-    vec2 uv=vU*vec2(4.,2.5);float row=floor(uv.y);
+    // thick diamond outline
+    float outline=smoothstep(.38,.44,d)-smoothstep(.44,.50,d);
+    // inner diamond fill variation
+    float inner=smoothstep(.0,.38,d);
+    float noiseV=ns(floor(uv)*0.7+vec2(.3,.1))*.12-.06;
+    c=uC*(1.0+inner*.15+noiseV);
+    c=mix(c,uC*1.3,outline*.5);
+    c=mix(c,uC*.35,smoothstep(.48,.50,d));
+  } else if(tx==3){
+    // Stone brick — with mortar joints and surface roughness
+    vec2 uv=vU*vec2(3.5,2.2);
+    float row=floor(uv.y);
     vec2 br=fract(vec2(uv.x+mod(row,2.)*.5,uv.y));
-    float m=smoothstep(0.,.07,br.x)*smoothstep(1.,.93,br.x)*smoothstep(0.,.09,br.y)*smoothstep(1.,.91,br.y);
-    c=mix(vec3(.32,.29,.25),uC,m);c*=.88+ns(floor(vec2(uv.x+mod(row,2.)*.5,uv.y))*2.)*.14;
-  } else if(uTX<4.5){
-    float pl=floor(vU.x*4.);float gr=ns(vec2(vU.x*4.,vU.y*22.+pl*4.))*.18;
-    c=uC*(.82+gr);c=mix(c,c*.45,smoothstep(.44,.5,fract(vU.x*4.))*.9);
-  } else {
-    c=uC*(.88+ns(vU*28.)*.14);
+    float mortar=1.-smoothstep(.0,.06,br.x)*smoothstep(1.,.94,br.x)*smoothstep(.0,.08,br.y)*smoothstep(1.,.92,br.y);
+    vec3 brickCol=uC*(0.85+fbm(floor(vec2(uv.x+mod(row,2.)*.5,uv.y))*.9)*.3);
+    vec3 mortarCol=vec3(.28,.26,.23);
+    c=mix(brickCol,mortarCol,mortar*.9);
+  } else if(tx==4){
+    // Dark wood — planks with grain
+    float plank=floor(vU.x*3.);
+    float grain=fbm(vec2(vU.x*3.,vU.y*18.+plank*5.3))*.22;
+    float knot=ns(vec2(plank*.7,vU.y*2.+plank))*.08;
+    c=uC*(.78+grain+knot);
+    float gap=1.-smoothstep(.03,.08,fract(vU.x*3.));
+    c=mix(c,c*.4,gap*.85);
+  } else if(tx==5){
+    // Rich carpet — deep red with subtle pile texture
+    float pile=fbm(vU*22.)*.15;
+    c=uC*(.85+pile);
+    float stripe=sin(vU.x*12.)*sin(vU.y*4.)*.03;
+    c+=stripe;
   }
-  // Bright lighting — more ambient, warm sun
-  vec3 ld=normalize(vec3(.5,1.,.4));
-  float df=max(dot(vN,ld),0.);
-  float hl=df*.5+.5; // half-lambert
-  vec3 amb=vec3(.45,.42,.55); // brighter purple-tinted ambient
-  vec3 sun=vec3(1.,.95,.85)*1.1;
-  vec3 lit=amb*c+hl*sun*c;
-  // rim light from window side
-  float rim=max(dot(vN,normalize(vec3(-1.,.2,.3))),0.)*.18;
-  lit+=rim*vec3(.7,.8,1.)*c;
-  // spec
-  lit+=pow(max(dot(reflect(-ld,vN),vec3(0.,1.,0.)),0.),16.)*.1;
-  lit=mix(lit,vec3(.05,.04,.1),clamp(uF,0.,1.));
+
+  // ── LIGHTING ──────────────────────────────────────
+  vec3 ld=normalize(vec3(.4,1.0,.35));
+  // half-lambert for softer shadows
+  float ndl=dot(vN,ld);
+  float diff=ndl*.45+.55;
+  diff*=diff;
+
+  // warm candlelight ambient (golden tint)
+  vec3 amb=vec3(.38,.34,.44);
+  // warm sun
+  vec3 sun=vec3(1.05,.92,.78);
+  vec3 lit=amb*c + diff*sun*c;
+
+  // cool fill from opposite side (moonlight through windows)
+  float fill=max(dot(vN,normalize(vec3(-.6,.1,-.4))),0.)*.22;
+  lit+=fill*vec3(.55,.65,.9)*c;
+
+  // floor bounce (warm)
+  float bounce=max(-vN.y,0.)*.12;
+  lit+=bounce*vec3(.9,.7,.4)*c;
+
+  // specular highlight on shiny surfaces
+  vec3 viewDir=normalize(vec3(0.,1.,1.));
+  float sp=pow(max(dot(reflect(-ld,vN),viewDir),0.),32.)*.08;
+  lit+=sp;
+
+  // depth fog — atmospheric
+  lit=mix(lit,vec3(.06,.05,.10),clamp(uF,0.,1.));
   gl_FragColor=vec4(clamp(lit,0.,1.),1.);
 }`;
 
@@ -161,7 +216,7 @@ gl.linkProgram(pg);if(!gl.getProgramParameter(pg,gl.LINK_STATUS))throw new Error
 gl.useProgram(pg);
 const A={p:gl.getAttribLocation(pg,'aP'),n:gl.getAttribLocation(pg,'aN'),u:gl.getAttribLocation(pg,'aU')};
 const U={mvp:gl.getUniformLocation(pg,'uMVP'),m:gl.getUniformLocation(pg,'uM'),c:gl.getUniformLocation(pg,'uC'),f:gl.getUniformLocation(pg,'uF'),tx:gl.getUniformLocation(pg,'uTX')};
-gl.enable(gl.DEPTH_TEST);gl.enable(gl.CULL_FACE);gl.clearColor(.07,.06,.12,1);
+gl.enable(gl.DEPTH_TEST);gl.enable(gl.CULL_FACE);gl.clearColor(.04,.035,.07,1);
 
 // ═══ MATH ═══
 const id=()=>new Float32Array([1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]);
@@ -186,22 +241,22 @@ function bMesh(pos,nrm,uvs,idx){
   return{vb,ib,cnt:idx.length};
 }
 function gBox(W,H,D){
-  const hw=W/2,hh=H/2,hd=D/2,p=[],n=[],u=[],ix=[];
+  const hw=W/2,hh=H/2,hd=D/2,pos=[],n=[],u=[],ix=[];
   const F=[[[hw,hh,hd],[-hw,hh,hd],[-hw,-hh,hd],[hw,-hh,hd],[0,0,1],[W,H]],[[-hw,hh,-hd],[hw,hh,-hd],[hw,-hh,-hd],[-hw,-hh,-hd],[0,0,-1],[W,H]],[[-hw,hh,hd],[-hw,hh,-hd],[-hw,-hh,-hd],[-hw,-hh,hd],[-1,0,0],[D,H]],[[hw,hh,-hd],[hw,hh,hd],[hw,-hh,hd],[hw,-hh,-hd],[1,0,0],[D,H]],[[-hw,hh,-hd],[-hw,hh,hd],[hw,hh,hd],[hw,hh,-hd],[0,1,0],[W,D]],[[-hw,-hh,hd],[-hw,-hh,-hd],[hw,-hh,-hd],[hw,-hh,hd],[0,-1,0],[W,D]]];
-  let vi=0;F.forEach(([p0,p1,p2,p3,nm,sz])=>{[[0,1],[0,0],[1,0],[1,1]].forEach((uv,i)=>{const pt=[p0,p1,p2,p3][i];p.push(pt[0],pt[1],pt[2]);n.push(nm[0],nm[1],nm[2]);u.push(uv[0]*sz[0],uv[1]*sz[1]);});ix.push(vi,vi+1,vi+2,vi,vi+2,vi+3);vi+=4;});
-  return bMesh(p,n,u,ix);
+  let vi=0;F.forEach(([p0,p1,p2,p3,nm,sz])=>{[[0,1],[0,0],[1,0],[1,1]].forEach((uv,i)=>{const pt=[p0,p1,p2,p3][i];pos.push(pt[0],pt[1],pt[2]);n.push(nm[0],nm[1],nm[2]);u.push(uv[0]*sz[0],uv[1]*sz[1]);});ix.push(vi,vi+1,vi+2,vi,vi+2,vi+3);vi+=4;});
+  return bMesh(pos,n,u,ix);
 }
 function gCyl(rt,rb,h,seg){
-  const p=[],n=[],u=[],ix=[];let vi=0;
-  for(let i=0;i<seg;i++){const a0=i/seg*Math.PI*2,a1=(i+1)/seg*Math.PI*2,x0=Math.sin(a0),z0=Math.cos(a0),x1=Math.sin(a1),z1=Math.cos(a1);[[x0*rb,-h/2,z0*rb],[x1*rb,-h/2,z1*rb],[x1*rt,h/2,z1*rt],[x0*rt,h/2,z0*rt]].forEach((pt,j)=>{p.push(pt[0],pt[1],pt[2]);n.push(pt[0],0,pt[2]);u.push((i+(j<2?0:1))/seg*4,(j<2?0:1)*h);});ix.push(vi,vi+1,vi+2,vi,vi+2,vi+3);vi+=4;}
-  return bMesh(p,n,u,ix);
+  const pos=[],n=[],u=[],ix=[];let vi=0;
+  for(let i=0;i<seg;i++){const a0=i/seg*Math.PI*2,a1=(i+1)/seg*Math.PI*2,x0=Math.sin(a0),z0=Math.cos(a0),x1=Math.sin(a1),z1=Math.cos(a1);[[x0*rb,-h/2,z0*rb],[x1*rb,-h/2,z1*rb],[x1*rt,h/2,z1*rt],[x0*rt,h/2,z0*rt]].forEach((pt,j)=>{pos.push(pt[0],pt[1],pt[2]);n.push(pt[0],0,pt[2]);u.push((i+(j<2?0:1))/seg*4,(j<2?0:1)*h);});ix.push(vi,vi+1,vi+2,vi,vi+2,vi+3);vi+=4;}
+  return bMesh(pos,n,u,ix);
 }
-function gSph(r,seg){const p=[],n=[],u=[],ix=[];for(let j=0;j<=seg;j++){const t=j/seg*Math.PI;for(let i=0;i<=seg;i++){const q=i/seg*Math.PI*2,x=Math.sin(t)*Math.cos(q),y=Math.cos(t),z=Math.sin(t)*Math.sin(q);p.push(x*r,y*r,z*r);n.push(x,y,z);u.push(i/seg,j/seg);}}for(let j=0;j<seg;j++)for(let i=0;i<seg;i++){const a=j*(seg+1)+i;ix.push(a,a+1,a+seg+1,a+1,a+seg+2,a+seg+1);}return bMesh(p,n,u,ix);}
+function gSph(r,seg){const pos=[],n=[],u=[],ix=[];for(let j=0;j<=seg;j++){const t=j/seg*Math.PI;for(let i=0;i<=seg;i++){const q=i/seg*Math.PI*2,x=Math.sin(t)*Math.cos(q),y=Math.cos(t),z=Math.sin(t)*Math.sin(q);pos.push(x*r,y*r,z*r);n.push(x,y,z);u.push(i/seg,j/seg);}}for(let j=0;j<seg;j++)for(let i=0;i<seg;i++){const a=j*(seg+1)+i;ix.push(a,a+1,a+seg+1,a+1,a+seg+2,a+seg+1);}return bMesh(pos,n,u,ix);}
 function gPlane(w,d){return bMesh([-w/2,0,-d/2,w/2,0,-d/2,w/2,0,d/2,-w/2,0,d/2],[0,1,0,0,1,0,0,1,0,0,1,0],[0,0,w,0,w,d,0,d],[0,1,2,0,2,3]);}
 
 const GB=gBox(1,1,1),GS=gSph(1,10),GC=gCyl(1,1,1,9);
 
-// ═══ SCENE ═══
+// ═══ SCENE — Gothic Castle ═══
 const OBJ=[],SOL=[];
 const h2r=h=>[((h>>16)&255)/255,((h>>8)&255)/255,(h&255)/255];
 
@@ -210,199 +265,315 @@ function addO(geo,col,model,tx=0,solid=true){
   if(solid){const m=model;const sx=Math.sqrt(m[0]**2+m[1]**2+m[2]**2),sy=Math.sqrt(m[4]**2+m[5]**2+m[6]**2),sz=Math.sqrt(m[8]**2+m[9]**2+m[10]**2);o.bb={x1:m[12]-sx/2,x2:m[12]+sx/2,y1:m[13]-sy/2,y2:m[13]+sy/2,z1:m[14]-sz/2,z2:m[14]+sz/2};SOL.push(o);}return o;
 }
 
-addO(gPlane(38,48),0xc8c0b0,id(),1,false);
-addO(gPlane(3.6,44),0x7a2a2a,mT(0,.01,0),5,false);
-addO(GB,0xb0a898,TRS(0,5.5,-24,38,11,.5),2);
-addO(GB,0xb0a898,TRS(0,5.5,24,38,11,.5),2);
-addO(GB,0xb0a898,TRS(-19,5.5,0,.5,11,48),2);
-addO(GB,0xb0a898,TRS(19,5.5,0,.5,11,48),2);
-addO(gPlane(38,48),0x282630,mul(mul(mT(0,11,0),mRX(Math.PI)),id()),3,false);
-[[0,.2,-24,38,.4,.35],[0,.2,24,38,.4,.35],[-19,.2,0,.35,.4,48],[19,.2,0,.35,.4,48],[0,10.8,-24,38,.35,.35],[0,10.8,24,38,.35,.35],[-19,10.8,0,.35,.35,48],[19,10.8,0,.35,.35,48]].forEach(([x,y,z,w,h,d])=>addO(GB,0xcc9944,TRS(x,y,z,w,h,d),0,false));
-[[0,-23.7,0],[0,23.7,Math.PI],[-18.7,0,Math.PI/2],[18.7,0,-Math.PI/2]].forEach(([x,z,ry])=>{[[-1.7,4,0,.5,8,.5],[1.7,4,0,.5,8,.5],[0,8.4,0,4.2,.65,.55],[0,9.1,0,3.6,.4,.4]].forEach(([ox,oy,oz,w,h,d])=>addO(GB,0xcc9944,mul(mul(mT(x,0,z),mRY(ry)),mul(mT(ox,oy,oz),mS(w,h,d))),0,false));});
-[[-7,7],[-7,0],[-7,-7],[7,7],[7,0],[7,-7],[-13,11],[-13,-11],[13,11],[13,-11]].forEach(([cx,cz])=>{
-  addO(GB,0xcc9944,TRS(cx,.15,cz,.9,.3,.9),0,false);
-  addO(GC,0xb8b0a0,TRS(cx,4.1,cz,.28,.28,7.8),2,true);
-  addO(GB,0xcc9944,TRS(cx,8.1,cz,.95,.32,.95),0,false);
+// Color palette — richer, less Minecraft
+const C={
+  marbleFloor:0xd4ccc0,  // warm marble
+  marbleDark: 0xa89e94,
+  wallStone:  0x9a9080,  // warm grey stone
+  wallDark:   0x7a7068,
+  gold:       0xcc9933,  // rich gold
+  goldDark:   0x996622,
+  wood:       0x5c3a1a,  // dark mahogany
+  woodLight:  0x7a5028,
+  carpet:     0x8a1a22,  // deep crimson carpet
+  ceiling:    0x2a2530,
+  plat:       0x6a6058,  // stone platform
+};
+
+// ── GRAND HALL FLOOR ──
+addO(gPlane(44,52), C.marbleFloor, id(), 1, false);
+// Carpet runner down center
+addO(gPlane(4,50), C.carpet, mT(0,.01,0), 5, false);
+// Side floor borders
+addO(gPlane(6,52), C.marbleDark, mT(-19,0,0), 1, false);
+addO(gPlane(6,52), C.marbleDark, mT( 19,0,0), 1, false);
+
+// ── OUTER WALLS ──
+addO(GB,C.wallStone, TRS(0,6,-26,44,12,.6),2);  // N
+addO(GB,C.wallStone, TRS(0,6, 26,44,12,.6),2);  // S
+addO(GB,C.wallStone, TRS(-22,6,0,.6,12,52),2);  // W
+addO(GB,C.wallStone, TRS( 22,6,0,.6,12,52),2);  // E
+
+// ── CEILING ──
+addO(gPlane(44,52), C.ceiling, mul(mul(mT(0,12,0),mRX(Math.PI)),id()), 3, false);
+// Ceiling beams (cross pattern)
+for(let z=-20;z<=20;z+=10) addO(GB,C.wood,TRS(0,11.6,z,44,.5,.45),4,false);
+for(let x=-16;x<=16;x+=8)  addO(GB,C.wood,TRS(x,11.6,0,.45,.5,52),4,false);
+
+// ── BASE & CROWN MOLDING ──
+[[0,.3,-26,44,.6,.5],[0,.3,26,44,.6,.5],[-22,.3,0,.5,.6,52],[22,.3,0,.5,.6,52]].forEach(([x,y,z,w,h,d])=>addO(GB,C.gold,TRS(x,y,z,w,h,d),0,false));
+[[0,11.7,-26,44,.55,.5],[0,11.7,26,44,.55,.5],[-22,11.7,0,.5,.55,52],[22,11.7,0,.5,.55,52]].forEach(([x,y,z,w,h,d])=>addO(GB,C.gold,TRS(x,y,z,w,h,d),0,false));
+
+// ── ORNATE DOORFRAMES ──
+[[0,-25.7,0],[0,25.7,Math.PI],[-21.7,0,Math.PI/2],[21.7,0,-Math.PI/2]].forEach(([x,z,ry])=>{
+  const g=v=>addO(GB,C.gold,mul(mul(mT(x,0,z),mRY(ry)),mul(mT(v[0],v[1],v[2]),mS(v[3],v[4],v[5]))),0,false);
+  g([-2,4.5,0,.55,9,.55]);g([2,4.5,0,.55,9,.55]);  // pillars
+  g([0,9.2,0,4.8,.7,.55]); g([0,10,.05,4,.5,.4]);  // arch + top
+  // pillar base/cap
+  g([-2,.35,0,.85,.7,.85]);g([2,.35,0,.85,.7,.85]);
+  g([-2,9.2,0,.8,.6,.8]); g([2,9.2,0,.8,.6,.8]);
 });
-addO(GB,0x6a6058,TRS(0,.25,0,7,.5,7),3);addO(GB,0xa0988a,TRS(0,.67,0,5.5,.35,5.5),1);
-[[-15.5,7],[-15.5,-7],[15.5,7],[15.5,-7]].forEach(([x,z])=>addO(GB,0x6a6058,TRS(x,.17,z,9,.35,5),3));
-addO(GB,0x6a6058,TRS(-17,4.17,0,5.5,.35,20),3);addO(GB,0x6a6058,TRS(17,4.17,0,5.5,.35,20),3);
-addO(GB,0xcc9944,TRS(-14.7,5.2,0,.2,2,20),0,false);addO(GB,0xcc9944,TRS(14.7,5.2,0,.2,2,20),0,false);
-for(let z=-9;z<=9;z+=3){addO(GB,0xcc9944,TRS(-14.7,5.0,z,.2,2,.2),0,false);addO(GB,0xcc9944,TRS(14.7,5.0,z,.2,2,.2),0,false);}
-[[-15.5,8,-1],[-15.5,-8,1],[15.5,8,-1],[15.5,-8,1]].forEach(([x,z0,zd])=>{[[.28,z0],[.55,z0+zd*2],[.82,z0+zd*4]].forEach(([y,z])=>addO(GB,0x6a6058,TRS(x,y,z,2.2,.55,2.2),3));});
-[[-15,-22,Math.PI/2],[15,-22,-Math.PI/2],[-15,22,Math.PI/2],[15,22,-Math.PI/2]].forEach(([x,z,ry])=>{addO(GB,0x5a3818,mul(mul(mT(x,2.5,z),mRY(ry)),mS(3,4.2,1.5)),4);addO(GB,0xcc9944,mul(mul(mT(x,4.55,z),mRY(ry)),mS(3.2,.2,1.6)),0,false);});
-for(let z=-15;z<=15;z+=8){addO(GB,0xeedd99,TRS(-18.75,6,z,.06,4.9,2.5),0,false);addO(GB,0xeedd99,TRS(18.75,6,z,.06,4.9,2.5),0,false);addO(GB,0xcc9944,TRS(-18.85,6,z,.12,5.2,.12),0,false);addO(GB,0xcc9944,TRS(18.85,6,z,.12,5.2,.12),0,false);addO(GB,0xcc9944,TRS(-18.85,6,z,.12,.12,2.6),0,false);addO(GB,0xcc9944,TRS(18.85,6,z,.12,.12,2.6),0,false);}
+
+// ── CLASSICAL COLUMNS — octagonal with base & capital ──
+[[-8,8],[-8,0],[-8,-8],[8,8],[8,0],[8,-8],[-15,11],[-15,-11],[15,11],[15,-11]].forEach(([cx,cz])=>{
+  addO(GB,C.gold,    TRS(cx,.35,cz,1,.7,1),0,false);      // plinth
+  addO(GC,C.wallStone,TRS(cx,5.5,cz,.32,.32,10),2,true); // shaft
+  addO(GB,C.gold,    TRS(cx,10.8,cz,1.1,.45,1.1),0,false); // capital
+  addO(GB,C.goldDark,TRS(cx,11.2,cz,.9,.35,.9),0,false);
+});
+
+// ── RAISED CENTER STAGE (like GunZ screenshot) ──
+addO(GB,C.plat,  TRS(0,.4,0,8,.8,8),  3); // base
+addO(GB,C.marbleFloor,TRS(0,.85,0,7,.1,7),1); // top marble
+// steps
+addO(GB,C.plat,TRS(0,.2, 5,8,.4,1.5),3);
+addO(GB,C.plat,TRS(0,.2,-5,8,.4,1.5),3);
+addO(GB,C.plat,TRS( 5,.2,0,1.5,.4,8),3);
+addO(GB,C.plat,TRS(-5,.2,0,1.5,.4,8),3);
+
+// ── SIDE ALCOVES with raised floors ──
+[[-18,8],[-18,-8],[18,8],[18,-8]].forEach(([x,z])=>{
+  addO(GB,C.plat, TRS(x,.3,z,6.5,.6,6.5),3);
+  addO(GB,C.marbleDark,TRS(x,.65,z,5.5,.1,5.5),1);
+});
+
+// ── UPPER BALCONIES ──
+addO(GB,C.plat,TRS(-18.5,4.5,0,6,.5,22),3);
+addO(GB,C.plat,TRS( 18.5,4.5,0,6,.5,22),3);
+// Balcony front walls (ornate)
+addO(GB,C.wallDark,TRS(-16,5.5,0,.4,2.2,22),2,false);
+addO(GB,C.wallDark,TRS( 16,5.5,0,.4,2.2,22),2,false);
+// Balcony arch openings (decorative boxes)
+for(let z=-9;z<=9;z+=4.5){
+  addO(GB,C.gold,TRS(-15.9,5.5,z,.08,2.2,.35),0,false);
+  addO(GB,C.gold,TRS( 15.9,5.5,z,.08,2.2,.35),0,false);
+}
+
+// ── BALCONY STAIRS ──
+[[-18.5,9,-1],[-18.5,-9,1],[18.5,9,-1],[18.5,-9,1]].forEach(([x,z0,zd])=>{
+  [[.2,z0],[.55,z0+zd*1.5],[.9,z0+zd*3],[1.25,z0+zd*4.5]].forEach(([y,z])=>{
+    addO(GB,C.plat,TRS(x,y*2.2,z,5.5,.45,1.8),3);
+  });
+});
+
+// ── STAINED GLASS WINDOWS (glow panels + gold frames) ──
+const winColors=[0xeeddaa,0xaaccee,0xeeb88a,0xaaeebb];
+for(let zi=0;zi<4;zi++){
+  const z=-12+zi*8, wc=winColors[zi%4];
+  // West wall windows
+  addO(GB,wc, TRS(-21.7,6.5,z,.05,5.5,3),0,false);
+  addO(GB,C.gold,TRS(-21.85,6.5,z,.15,6,.12),0,false);
+  addO(GB,C.gold,TRS(-21.85,6.5,z,.15,.12,3.2),0,false);
+  addO(GB,C.gold,TRS(-21.85,9.8,z,.15,.12,3.2),0,false);
+  // East wall
+  addO(GB,wc, TRS(21.7,6.5,z,.05,5.5,3),0,false);
+  addO(GB,C.gold,TRS(21.85,6.5,z,.15,6,.12),0,false);
+  addO(GB,C.gold,TRS(21.85,6.5,z,.15,.12,3.2),0,false);
+  addO(GB,C.gold,TRS(21.85,9.8,z,.15,.12,3.2),0,false);
+}
+
+// ── COVER OBJECTS (tactical cover for GunZ gameplay) ──
+// Large pillars / barriers in mid-field
+addO(GB,C.wood,   TRS( 11,1.2, 11,1.2,2.4,1.2),4);
+addO(GB,C.wood,   TRS(-11,1.2, 11,1.2,2.4,1.2),4);
+addO(GB,C.wood,   TRS( 11,1.2,-11,1.2,2.4,1.2),4);
+addO(GB,C.wood,   TRS(-11,1.2,-11,1.2,2.4,1.2),4);
+// Low walls for crouching cover
+addO(GB,C.plat,   TRS(  0,.6, 14,7,1.2,.6),3);
+addO(GB,C.plat,   TRS(  0,.6,-14,7,1.2,.6),3);
+addO(GB,C.plat,   TRS( 14,.6,  0,.6,1.2,7),3);
+addO(GB,C.plat,   TRS(-14,.6,  0,.6,1.2,7),3);
+// Decorative pots / pedestals
+[[ 5,0, 18],[-5,0,18],[ 5,0,-18],[-5,0,-18]].forEach(([x,y,z])=>{
+  addO(GC,C.goldDark,TRS(x,.55,z,.22,.22,1.1),0);
+  addO(GC,C.gold,    TRS(x,1.2,z,.32,.32,.18),0,false);
+});
+
+// ── BACK WALL DECORATIONS — ornate cabinets like screenshot ──
+[[-14,-24,0],[14,-24,Math.PI],[-14,24,0],[14,24,Math.PI]].forEach(([x,z,ry])=>{
+  addO(GB,C.wood,     mul(mul(mT(x,2.2,z),mRY(ry)),mS(3.5,4.4,1.2)),4);
+  addO(GB,C.woodLight,mul(mul(mT(x,2.2,z),mRY(ry)),mul(mT(-.88,0,.65),mS(1.6,3.8,.08))),4,false);
+  addO(GB,C.woodLight,mul(mul(mT(x,2.2,z),mRY(ry)),mul(mT( .88,0,.65),mS(1.6,3.8,.08))),4,false);
+  addO(GB,C.gold,     mul(mul(mT(x,4.55,z),mRY(ry)),mS(3.7,.25,1.3)),0,false);
+  addO(GB,C.gold,     mul(mul(mT(x,.25,z), mRY(ry)),mS(3.7,.25,1.3)),0,false);
+});
 
 // ═══ CHARACTER — simple segmented model, NO pivot tricks ═══
 // Each segment = {geo, col, getMatrix(animState)} where getMatrix returns world-relative matrix
 // animState = {t, mov, aim, shoot, reload, inAir}
+// ═══════════════════════════════════════════════════
+//  CHARACTER FACTORY
+//  Convention: character faces -Z (forward = -Z in local space)
+//  Root matrix = mT(wx,wy,wz) * mRY(ry) where ry=camYaw+PI
+//  So the character's -Z axis points toward the camera (TPS back view)
+//  Arms hang down at sides. aim=1 raises right arm forward (-Z = toward enemy)
+// ═══════════════════════════════════════════════════
 function mkChar(hC,vC,sC,pC){
-  const SK=0xf4c090;
-  // Each part: {geo, col, fn(as,root) -> matrix}
-  // root = character base matrix (position + facing)
-  // All positions are in LOCAL space, then multiplied by root
-  const parts=[];
-  const add=(geo,col,fn)=>parts.push({geo,col:h2r(col),fn});
+  // CONVENTION: character faces +Z (forward = +Z in local space)
+  // Root matrix = mT(wx,wy,wz) * mRY(ry) where ry = camYaw+PI => faces camera direction
+  // Y=0 is feet, Y=1.9 is top of head
+  const SK=0xf2b890, DARK=0x0e0e18, GOLD=0xddaa33;
+  const p=[];
+  const add=(geo,col,fn)=>p.push({geo,col:h2r(col),fn});
 
-  // HEAD
-  add(GS,SK,  (a,R)=>mul(R,mul(mT(0,1.65,0),mS(.2,.2,.2))));
-  // HAIR
-  add(GS,hC,  (a,R)=>mul(R,mul(mT(0,1.72,-.01),mS(.215,.185,.215))));
-  add(GS,hC,  (a,R)=>mul(R,mul(mT(0,1.84,-.03),mS(.16,.1,.16))));
-  // hair strands
-  add(GS,hC,  (a,R)=>mul(R,mul(mT(-.1,1.38,.08),mS(.04,.16,.04))));
-  add(GS,hC,  (a,R)=>mul(R,mul(mT(.1,1.38,.08),mS(.04,.14,.04))));
-  add(GS,hC,  (a,R)=>mul(R,mul(mT(0,1.36,.09),mS(.045,.17,.045))));
-  // NECK
-  add(GC,SK,  (a,R)=>mul(R,mul(mT(0,1.5,0),mS(.075,.075,.15))));
-  // TORSO
-  add(GB,vC,  (a,R)=>mul(R,mul(mT(0,1.12,0),mS(.42,.56,.22))));
-  add(GB,0x405220,(a,R)=>mul(R,mul(mT(0,1.12,.001),mS(.02,.54,.23))));
-  // shoulder armor
-  add(GB,0xaa8840,(a,R)=>mul(R,mul(mT(-.26,1.38,0),mS(.18,.12,.18))));
-  add(GB,0xaa8840,(a,R)=>mul(R,mul(mT(.26,1.38,0),mS(.18,.12,.18))));
-  // belt
-  add(GB,0x9a8a40,(a,R)=>mul(R,mul(mT(0,.84,0),mS(.44,.065,.24))));
-  add(GB,0xeecc44,(a,R)=>mul(R,mul(mT(0,.84,.13),mS(.08,.065,.05))));
-  // skirt
-  add(GB,0x3a5a1a,(a,R)=>mul(R,mul(mT(0,.66,.13),mS(.36,.19,.08))));
-  // hips
-  add(GB,vC,(a,R)=>mul(R,mul(mT(0,.77,0),mS(.38,.13,.22))));
+  // ─── HEAD (y=1.55..1.80) ──────────────────────────
+  add(GS,SK,    (a,R)=>mul(R,mul(mT(0,1.67,0),mS(.21,.21,.21))));
+  // Hair cap
+  add(GS,hC,    (a,R)=>mul(R,mul(mT(0,1.74,.01),mS(.23,.19,.23))));
+  // Hair back
+  add(GB,hC,    (a,R)=>mul(R,mul(mT(0,1.63,-.16),mS(.25,.30,.09))));
+  // Side hair L
+  add(GB,hC,    (a,R)=>mul(R,mul(mT(-.17,1.60,-.03),mS(.06,.26,.09))));
+  // Side hair R
+  add(GB,hC,    (a,R)=>mul(R,mul(mT( .17,1.60,-.03),mS(.06,.26,.09))));
+  // Top spike
+  add(GB,hC,    (a,R)=>mul(R,mul(mT(0,1.89,0),mS(.07,.13,.07))));
+  // Face (front = +Z)
+  add(GB,SK,    (a,R)=>mul(R,mul(mT(0,1.67,.16),mS(.26,.25,.05))));
+  // Eyes
+  add(GB,0x112244,(a,R)=>mul(R,mul(mT(-.07,1.71,.20),mS(.07,.04,.02))));
+  add(GB,0x112244,(a,R)=>mul(R,mul(mT( .07,1.71,.20),mS(.07,.04,.02))));
+  // Mouth
+  add(GB,0xbb6644,(a,R)=>mul(R,mul(mT(0,1.60,.20),mS(.055,.022,.02))));
+  // Neck
+  add(GB,SK,    (a,R)=>mul(R,mul(mT(0,1.49,0),mS(.10,.12,.10))));
 
-  // ── ARMS ── animated around shoulder pivot
-  // Right arm (weapon side) — aim + shoot animation
-  add(GC,sC,(a,R)=>{
-    // shoulder pivot at (0.24, 1.38, 0) local
-    const sx=.24,sy=1.38,sz=0;
-    // idle: arm hangs at ~25° out
-    // aim: arm rises forward to ~-70deg
-    // shoot: recoil kick +30deg then spring back
-    const aimRx= -1.3*a.aim;
-    const shootRx= a.shoot*0.6;
-    const walkRx= a.mov?Math.sin(a.t*9.5)*0.2:0;
-    const rot=mRX(aimRx+shootRx+walkRx);
-    // build: go to shoulder, rotate, come back, scale to arm shape
-    const local=mul(mul(mul(mT(sx,sy,sz),rot),mT(0,-.14,-.12)),mS(.085,.085,.32));
-    return mul(R,local);
-  });
-  // Right forearm
-  add(GC,SK,(a,R)=>{
-    const sx=.24,sy=1.38,sz=0;
-    const aimRx=-0.4*a.aim;
-    const shootRx=a.shoot*0.3;
-    const walkRx=a.mov?Math.sin(a.t*9.5)*0.15:0;
-    const rot=mRX(aimRx+shootRx+walkRx);
-    const local=mul(mul(mul(mT(sx,sy,sz),rot),mT(0,-.38,-.14)),mS(.065,.065,.26));
-    return mul(R,local);
-  });
-  // Right hand
-  add(GS,SK,(a,R)=>{
-    const sx=.24,sy=1.38,sz=0;
-    const aimRx=-1.3*a.aim+a.shoot*0.6+(a.mov?Math.sin(a.t*9.5)*0.2:0);
-    const rot=mRX(aimRx);
-    const local=mul(mul(mul(mT(sx,sy,sz),rot),mT(0,-.56,-.16)),mS(.06,.06,.06));
-    return mul(R,local);
-  });
-  // WEAPON (attached to right hand)
-  add(GB,0x334477,(a,R)=>{
-    const sx=.24,sy=1.38,sz=0;
-    const aimRx=-1.3*a.aim+a.shoot*0.6+(a.mov?Math.sin(a.t*9.5)*0.2:0);
-    const rot=mRX(aimRx);
-    const local=mul(mul(mul(mT(sx,sy,sz),rot),mul(mT(.0,-.62,-.25),mRX(a.aim*.1))),mS(.055,.055,.5));
-    return mul(R,local);
-  });
-  // Gun barrel
-  add(GC,0x222233,(a,R)=>{
-    const sx=.24,sy=1.38,sz=0;
-    const aimRx=-1.3*a.aim+a.shoot*0.6+(a.mov?Math.sin(a.t*9.5)*0.2:0);
-    const rot=mRX(aimRx);
-    const local=mul(mul(mul(mT(sx,sy,sz),rot),mul(mT(.0,-.62,-.52),mS(.018,.018,.22))),id());
-    return mul(R,local);
-  });
+  // ─── TORSO (y=0.85..1.43) ─────────────────────────
+  // Main vest
+  add(GB,vC,    (a,R)=>mul(R,mul(mT(0,1.14,0),mS(.44,.54,.22))));
+  // Shirt visible on sides
+  add(GB,sC,    (a,R)=>mul(R,mul(mT(0,1.14,0),mS(.50,.50,.16))));
+  // Vest over shirt
+  add(GB,vC,    (a,R)=>mul(R,mul(mT(0,1.14,0),mS(.44,.54,.21))));
+  // Center vertical stripe
+  add(GB,0x2a3a08,(a,R)=>mul(R,mul(mT(0,1.14,.115),mS(.022,.52,.01))));
+  // Collar
+  add(GB,sC,    (a,R)=>mul(R,mul(mT(0,1.43,.09),mS(.19,.09,.09))));
+  // Shoulder armor L
+  add(GB,GOLD,  (a,R)=>mul(R,mul(mT(-.27,1.40,0),mS(.12,.08,.20))));
+  add(GB,0xbb8822,(a,R)=>mul(R,mul(mT(-.30,1.36,0),mS(.07,.14,.16))));
+  // Shoulder armor R
+  add(GB,GOLD,  (a,R)=>mul(R,mul(mT( .27,1.40,0),mS(.12,.08,.20))));
+  add(GB,0xbb8822,(a,R)=>mul(R,mul(mT( .30,1.36,0),mS(.07,.14,.16))));
+  // Belt
+  add(GB,GOLD,  (a,R)=>mul(R,mul(mT(0,.87,0),mS(.46,.065,.23))));
+  add(GB,0xffee44,(a,R)=>mul(R,mul(mT(0,.87,.125),mS(.08,.065,.04))));
+  // Lower flap (skirt)
+  add(GB,0x2a4c10,(a,R)=>mul(R,mul(mT(0,.72,.12),mS(.36,.16,.07))));
+  // Hips
+  add(GB,vC,    (a,R)=>mul(R,mul(mT(0,.79,0),mS(.38,.13,.22))));
 
-  // Left arm
-  add(GC,sC,(a,R)=>{
-    const sx=-.24,sy=1.38,sz=0;
-    const aimRx=-1.0*a.aim+(a.mov?Math.sin(a.t*9.5+Math.PI)*0.2:0);
-    const reloadRx=a.reload>0?Math.sin(a.reload*Math.PI)*0.7:0;
-    const rot=mRX(aimRx+reloadRx);
-    const local=mul(mul(mul(mT(sx,sy,sz),rot),mT(0,-.14,-.12)),mS(.085,.085,.32));
-    return mul(R,local);
-  });
-  // Left forearm
-  add(GC,SK,(a,R)=>{
-    const sx=-.24,sy=1.38,sz=0;
-    const aimRx=-0.35*a.aim+(a.mov?Math.sin(a.t*9.5+Math.PI)*0.15:0);
-    const reloadRx=a.reload>0?Math.sin(a.reload*Math.PI)*0.5:0;
-    const rot=mRX(aimRx+reloadRx);
-    const local=mul(mul(mul(mT(sx,sy,sz),rot),mT(0,-.38,-.14)),mS(.065,.065,.26));
-    return mul(R,local);
-  });
+  // ─── ARM CHAIN HELPER ─────────────────────────────
+  // shoulder is at (+/-0.27, 1.36, 0) in local space
+  // arm hangs down (-Y), swings forward along +Z when aim (rx negative)
+  function getArm(a, isRight){
+    const sx = isRight ? 0.27 : -0.27;
+    const walkRx = a.mov ? Math.sin(a.t*9 + (isRight?0:Math.PI)) * 0.25 : 0;
+    const aimRx  = isRight ? -1.30*a.aim : -1.00*a.aim;
+    const kickRx = isRight ? a.shoot*0.55 : 0;
+    const rlRx   = (!isRight&&a.reload>0) ? Math.sin(a.reload*Math.PI)*0.70 : 0;
+    const rx = walkRx + aimRx + kickRx + rlRx;
+    // Forearm bend at elbow
+    const frx = isRight ? -0.35*a.aim + a.shoot*0.25 : -0.25*a.aim;
+    // Shoulder world pos (after root)
+    const shoulder = mT(sx, 1.36, 0);
+    // Upper arm: from shoulder, rotated, centered halfway down
+    const uArm   = mul(mul(shoulder, mRX(rx)), mT(0,-0.13, 0));
+    // Elbow pos: shoulder + full upper arm length
+    const elbow  = mul(mul(shoulder, mRX(rx)), mT(0,-0.27, 0));
+    // Forearm: from elbow, extra bend
+    const fArm   = mul(mul(elbow, mRX(frx)), mT(0,-0.12, 0));
+    // Wrist pos
+    const wrist  = mul(mul(elbow, mRX(frx)), mT(0,-0.25, 0));
+    return {uArm, fArm, wrist};
+  }
 
-  // ── LEGS ── animated around hip pivot
-  // Left leg
-  add(GC,pC,(a,R)=>{
-    const lx=-.12,ly=.78,lz=0;
-    const rx=a.inAir?-.4:(a.mov?Math.sin(a.t*9.5)*.38:0);
-    const local=mul(mul(mul(mT(lx,ly,lz),mRX(rx)),mT(0,-.22,0)),mS(.095,.095,.5));
-    return mul(R,local);
+  // RIGHT ARM
+  add(GB,sC,(a,R)=>{ const {uArm}=getArm(a,true);  return mul(R,mul(uArm,mS(.098,.098,.28)));});
+  add(GB,SK,(a,R)=>{ const {fArm}=getArm(a,true);  return mul(R,mul(fArm,mS(.086,.086,.26)));});
+  add(GB,SK,(a,R)=>{ const {wrist}=getArm(a,true); return mul(R,mul(wrist,mS(.09,.09,.09)));});
+
+  // ─── WEAPON (rides on right wrist, points +Z = forward) ──
+  add(GB,0x2a3a55,(a,R)=>{
+    const {wrist}=getArm(a,true);
+    // Gun body centered at wrist, extending forward (+Z)
+    return mul(R, mul(mul(wrist, mT(.01,-.04,.20)), mS(.062,.062,.42)));
   });
-  // Left calf
-  add(GC,pC,(a,R)=>{
-    const lx=-.12,ly=.78,lz=0;
-    const thighRx=a.inAir?-.4:(a.mov?Math.sin(a.t*9.5)*.38:0);
-    // calf bends relative to thigh
-    const calfRx=a.inAir?-.3:(a.mov?Math.max(0,Math.sin(a.t*9.5+.8))*.32:0);
-    // position calf at bottom of thigh
-    const thighBot=mul(mul(mT(lx,ly,lz),mRX(thighRx)),mT(0,-.44,0));
-    const local=mul(mul(thighBot,mRX(calfRx)),mul(mT(0,-.15,0),mS(.085,.085,.34)));
-    return mul(R,local);
+  // Grip (hangs below gun body, -Y)
+  add(GB,0x1a1a2a,(a,R)=>{
+    const {wrist}=getArm(a,true);
+    return mul(R, mul(mul(wrist, mT(.01,-.13,.18)), mS(.046,.13,.046)));
   });
-  // Left boot
-  add(GB,0x1e1e2a,(a,R)=>{
-    const lx=-.12,ly=.78,lz=0;
-    const thighRx=a.inAir?-.4:(a.mov?Math.sin(a.t*9.5)*.38:0);
-    const calfRx=a.inAir?-.3:(a.mov?Math.max(0,Math.sin(a.t*9.5+.8))*.32:0);
-    const pos=mul(mul(mul(mT(lx,ly,lz),mRX(thighRx)),mT(0,-.44,0)),mul(mRX(calfRx),mT(0,-.3,.02)));
-    return mul(R,mul(pos,mS(.15,.13,.26)));
+  // Barrel (forward extension)
+  add(GB,0x111122,(a,R)=>{
+    const {wrist}=getArm(a,true);
+    return mul(R, mul(mul(wrist, mT(.01,-.04,.44)), mS(.034,.034,.15)));
+  });
+  // Magazine
+  add(GB,0x334466,(a,R)=>{
+    const {wrist}=getArm(a,true);
+    return mul(R, mul(mul(wrist, mT(.01,-.14,.19)), mS(.04,.10,.04)));
+  });
+  // Top rail
+  add(GB,0x445577,(a,R)=>{
+    const {wrist}=getArm(a,true);
+    return mul(R, mul(mul(wrist, mT(.01,.02,.20)), mS(.020,.015,.32)));
   });
 
-  // Right leg
-  add(GC,pC,(a,R)=>{
-    const lx=.12,ly=.78,lz=0;
-    const rx=a.inAir?.3:(a.mov?Math.sin(a.t*9.5+Math.PI)*.38:0);
-    const local=mul(mul(mul(mT(lx,ly,lz),mRX(rx)),mT(0,-.22,0)),mS(.095,.095,.5));
-    return mul(R,local);
+  // LEFT ARM
+  add(GB,sC,(a,R)=>{ const {uArm}=getArm(a,false);  return mul(R,mul(uArm,mS(.098,.098,.28)));});
+  add(GB,SK,(a,R)=>{ const {fArm}=getArm(a,false);  return mul(R,mul(fArm,mS(.086,.086,.26)));});
+  add(GB,SK,(a,R)=>{ const {wrist}=getArm(a,false); return mul(R,mul(wrist,mS(.09,.09,.09)));});
+
+  // ─── LEG CHAIN HELPER ─────────────────────────────
+  // hip at (+/-0.13, 0.78, 0), thigh hangs -Y, swings along Z
+  function getLeg(a, isLeft){
+    const hx = isLeft ? -0.13 : 0.13;
+    const phase = isLeft ? 0 : Math.PI;
+    const thRx = a.inAir ? (isLeft?-.42:.32) : (a.mov?Math.sin(a.t*9+phase)*.42:0);
+    const caRx = a.inAir ? (isLeft?-.32:.24) : (a.mov?Math.max(0,Math.sin(a.t*9+phase+0.85))*.40:0);
+    const hip   = mT(hx, 0.78, 0);
+    const thigh = mul(mul(hip, mRX(thRx)), mT(0,-0.25,0));  // upper leg center
+    const knee  = mul(mul(hip, mRX(thRx)), mT(0,-0.51,0));  // knee joint pos
+    const calf  = mul(mul(knee, mRX(caRx)), mT(0,-0.20,0)); // lower leg center
+    const ankle = mul(mul(knee, mRX(caRx)), mT(0,-0.40,0)); // ankle pos
+    return {thigh, calf, ankle};
+  }
+
+  // LEFT LEG
+  add(GB,pC,(a,R)=>{ const {thigh}=getLeg(a,true);  return mul(R,mul(thigh,mS(.11,.54,.11)));});
+  add(GB,pC,(a,R)=>{ const {calf} =getLeg(a,true);  return mul(R,mul(calf, mS(.10,.44,.10)));});
+  add(GB,DARK,(a,R)=>{
+    const {ankle}=getLeg(a,true);
+    return mul(R,mul(mul(ankle,mT(0,-.08,.04)),mS(.14,.17,.28)));
   });
-  // Right calf
-  add(GC,pC,(a,R)=>{
-    const lx=.12,ly=.78,lz=0;
-    const thighRx=a.inAir?.3:(a.mov?Math.sin(a.t*9.5+Math.PI)*.38:0);
-    const calfRx=a.inAir?.2:(a.mov?Math.max(0,Math.sin(a.t*9.5+Math.PI+.8))*.32:0);
-    const thighBot=mul(mul(mT(lx,ly,lz),mRX(thighRx)),mT(0,-.44,0));
-    const local=mul(mul(thighBot,mRX(calfRx)),mul(mT(0,-.15,0),mS(.085,.085,.34)));
-    return mul(R,local);
-  });
-  // Right boot
-  add(GB,0x1e1e2a,(a,R)=>{
-    const lx=.12,ly=.78,lz=0;
-    const thighRx=a.inAir?.3:(a.mov?Math.sin(a.t*9.5+Math.PI)*.38:0);
-    const calfRx=a.inAir?.2:(a.mov?Math.max(0,Math.sin(a.t*9.5+Math.PI+.8))*.32:0);
-    const pos=mul(mul(mul(mT(lx,ly,lz),mRX(thighRx)),mT(0,-.44,0)),mul(mRX(calfRx),mT(0,-.3,.02)));
-    return mul(R,mul(pos,mS(.15,.13,.26)));
+  add(GB,0x080812,(a,R)=>{  // boot sole
+    const {ankle}=getLeg(a,true);
+    return mul(R,mul(mul(ankle,mT(0,-.17,.04)),mS(.135,.04,.30)));
   });
 
-  return parts;
+  // RIGHT LEG
+  add(GB,pC,(a,R)=>{ const {thigh}=getLeg(a,false); return mul(R,mul(thigh,mS(.11,.54,.11)));});
+  add(GB,pC,(a,R)=>{ const {calf} =getLeg(a,false); return mul(R,mul(calf, mS(.10,.44,.10)));});
+  add(GB,DARK,(a,R)=>{
+    const {ankle}=getLeg(a,false);
+    return mul(R,mul(mul(ankle,mT(0,-.08,.04)),mS(.14,.17,.28)));
+  });
+  add(GB,0x080812,(a,R)=>{
+    const {ankle}=getLeg(a,false);
+    return mul(R,mul(mul(ankle,mT(0,-.17,.04)),mS(.135,.04,.30)));
+  });
+
+  return p;
 }
 
-const PLR=mkChar(0xcc2222,0x556b2f,0x8877bb,0x2a3a6a);
+const PLR=mkChar(0xcc2222,0x4a6820,0x8877bb,0x2a3a6a);
 const BOTS_PARTS=[
-  mkChar(0x1155ee,0x223355,0x334488,0x1a1a33),
-  mkChar(0x22aa55,0x1e3a1e,0x2a4a2a,0x1a2a1a),
-  mkChar(0xcc6600,0x4a2a10,0x6a3a18,0x3a2208),
+  mkChar(0x2266ee,0x1a2844,0x223355,0x1a1a33),
+  mkChar(0x22aa55,0x183818,0x2a4a2a,0x182818),
+  mkChar(0xcc6600,0x3a1800,0x5a2a10,0x281400),
 ];
 
-// ═══ DRAW CHARACTER ═══
 function bindG(g){gl.bindBuffer(gl.ARRAY_BUFFER,g.vb);const st=32;gl.enableVertexAttribArray(A.p);gl.vertexAttribPointer(A.p,3,gl.FLOAT,false,st,0);gl.enableVertexAttribArray(A.n);gl.vertexAttribPointer(A.n,3,gl.FLOAT,false,st,12);gl.enableVertexAttribArray(A.u);gl.vertexAttribPointer(A.u,2,gl.FLOAT,false,st,24);gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,g.ib);}
 
 function drawChar(parts,wx,wy,wz,ry,animState,VIEW){
@@ -470,7 +641,47 @@ function doMel(){if(P.meleeCd>0)return;P.meleeCd=WD.katana.rate;const fx=-Math.s
 function rAABB(ox,oy,oz,dx,dy,dz,a){let mn=0,mx=1e9;[[ox,dx,a.x1,a.x2],[oy,dy,a.y1,a.y2],[oz,dz,a.z1,a.z2]].forEach(([o,d,lo,hi])=>{if(Math.abs(d)<1e-9){if(o<lo||o>hi)mx=-1;}else{let t1=(lo-o)/d,t2=(hi-o)/d;if(t1>t2){const _=t1;t1=t2;t2=_;}mn=Math.max(mn,t1);mx=Math.min(mx,t2);}});return mn<=mx&&mx>0?mn:null;}
 
 let MUZ=0;const TRL=[];
-function doShoot(){const wd=WD[P.wep];if(wd.melee)return;const ws=P.inv[P.wep];if(P.reload||P.fireCd>0)return;if(ws.mag<=0){startRl();return;}P.fireCd=wd.rate;ws.mag--;MUZ=.09;shootAnim=1.0;uAmmo();const cosY=Math.cos(camYaw),sinY=Math.sin(camYaw),cosP=Math.cos(camPitch),sinP=Math.sin(camPitch);const rx=[cosY,0,-sinY];const cox=PX+rx[0]*.5,coy=PY+sinP*3.8+.75,coz=PZ+rx[2]*.5;for(let i=0;i<wd.pel;i++){let rdx=-sinY*cosP+(Math.random()-.5)*wd.sp*2,rdy=sinP+(Math.random()-.5)*wd.sp,rdz=-cosY*cosP+(Math.random()-.5)*wd.sp*2;const rl=Math.sqrt(rdx*rdx+rdy*rdy+rdz*rdz);rdx/=rl;rdy/=rl;rdz/=rl;let bt=1e9,hb=null;bots.forEach(b=>{if(!b.alive)return;const r=.3,bh=1.6;const ba={x1:b.x-r,x2:b.x+r,y1:b.y-bh/2,y2:b.y+bh/2,z1:b.z-r,z2:b.z+bh/2};const t=rAABB(cox,coy,coz,rdx,rdy,rdz,ba);if(t!==null&&t<bt){bt=t;hb=b;}});if(hb){hitBot(hb,wd.dmg);TRL.push({x1:cox,y1:coy,z1:coz,x2:cox+rdx*bt,y2:coy+rdy*bt,z2:coz+rdz*bt,l:.08,p:true});}else TRL.push({x1:cox,y1:coy,z1:coz,x2:cox+rdx*55,y2:coy+rdy*55,z2:coz+rdz*55,l:.08,p:true});}}
+function doShoot(){
+  const wd=WD[P.wep];if(wd.melee)return;
+  const ws=P.inv[P.wep];if(P.reload||P.fireCd>0)return;
+  if(ws.mag<=0){startRl();return;}
+  P.fireCd=wd.rate;ws.mag--;MUZ=.09;shootAnim=1.0;uAmmo();
+
+  // Shoot from player chest position in the direction the camera is LOOKING
+  // This makes bullets go exactly where the crosshair points
+  const cosY=Math.cos(camYaw),sinY=Math.sin(camYaw);
+  const cosP=Math.cos(camPitch),sinP=Math.sin(camPitch);
+
+  // Origin = player upper body (chest level)
+  const ox=PX, oy=PY+0.5, oz=PZ;
+
+  // Direction = exact camera forward vector (where crosshair points)
+  const baseDirX=-sinY*cosP;
+  const baseDirY=sinP;
+  const baseDirZ=-cosY*cosP;
+
+  for(let i=0;i<wd.pel;i++){
+    let rdx=baseDirX+(Math.random()-.5)*wd.sp*2;
+    let rdy=baseDirY+(Math.random()-.5)*wd.sp;
+    let rdz=baseDirZ+(Math.random()-.5)*wd.sp*2;
+    const rl=Math.sqrt(rdx*rdx+rdy*rdy+rdz*rdz);
+    rdx/=rl;rdy/=rl;rdz/=rl;
+
+    let bt=1e9,hb=null;
+    bots.forEach(b=>{
+      if(!b.alive)return;
+      const r=.35,bh=1.8;
+      const ba={x1:b.x-r,x2:b.x+r,y1:b.y-bh/2,y2:b.y+bh/2,z1:b.z-r,z2:b.z+bh/2};
+      const t=rAABB(ox,oy,oz,rdx,rdy,rdz,ba);
+      if(t!==null&&t<bt){bt=t;hb=b;}
+    });
+
+    const trailEnd=bt<1e9?bt:55;
+    const ex=ox+rdx*trailEnd,ey=oy+rdy*trailEnd,ez=oz+rdz*trailEnd;
+    TRL.push({x1:ox,y1:oy,z1:oz,x2:ex,y2:ey,z2:ez,l:.09,p:true});
+    if(hb) hitBot(hb,wd.dmg);
+  }
+}
 function startRl(){const wd=WD[P.wep];if(wd.melee)return;const ws=P.inv[P.wep];if(P.reload||ws.mag===wd.mag||ws.res<=0)return;P.reload=true;P.reloadT=wd.rl;document.getElementById('rl').style.display='block';}
 function swWep(w){P.wep=w;P.reload=false;document.getElementById('rl').style.display='none';uAmmo();}
 
@@ -522,6 +733,7 @@ function respBot(b){const sp=BSPAWNS[Math.floor(Math.random()*BSPAWNS.length)];b
 function dmgP(dmg,who){if(P.dead)return;if(P.ap>0){const ab=Math.min(P.ap,dmg*.5);P.ap-=ab;dmg-=ab;}P.hp=Math.max(0,P.hp-dmg);uHp();const v=document.getElementById('vgn');v.classList.remove('on');void v.offsetWidth;v.classList.add('on');if(P.hp<=0)killP(who);}
 function killP(who){P.dead=true;P.deaths++;document.getElementById('dp2').textContent=`Tué par ${who} — Kills:${P.kills}`;document.getElementById('ds').style.display='flex';}
 function respP(){PX=0;PY=PH/2;PZ=10;VX=0;VY=0;VZ=0;onGround=true;jc=0;dashes=3;P.hp=200;P.ap=100;P.dead=false;P.reload=false;Object.keys(P.inv).forEach(w=>{P.inv[w].mag=WD[w].mag;P.inv[w].res=WD[w].res;});document.getElementById('ds').style.display='none';uHp();uAmmo();uDash();}
+window._respP=respP;
 
 // ═══ RENDER ═══
 function getCam(){const rx=Math.cos(camYaw),rz=-Math.sin(camYaw);return{x:PX+rx*.5+Math.sin(camYaw)*Math.cos(camPitch)*3.8,y:PY+Math.sin(camPitch)*3.8+.75,z:PZ+rz*.5+Math.cos(camYaw)*Math.cos(camPitch)*3.8,lx:PX+rx*.3,ly:PY+.58,lz:PZ+rz*.3};}
